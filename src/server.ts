@@ -98,6 +98,103 @@ const getCartInputSchema = z.object({
   id: z.string().describe("The ID of the cart to retrieve.")
 });
 
+const updateCartInputSchema = z.object({
+  shop_domain: z
+    .string()
+    .describe("The shop domain to call. This maps to https://{shop-domain}/api/ucp/mcp."),
+  meta: z
+    .object({
+      "ucp-agent": z.object({
+        profile: z
+          .string()
+          .url()
+          .describe("The URI to your agent's UCP profile for capability negotiation.")
+      })
+    })
+    .describe("Request metadata. You must include ucp-agent.profile."),
+  id: z.string().describe("The ID of the cart to update."),
+  cart: z
+    .object({
+      line_items: z
+        .array(
+          z.object({
+            quantity: z
+              .number()
+              .int()
+              .min(1)
+              .describe("The full replacement quantity for this line item."),
+            item: z.object({
+              id: z
+                .string()
+                .describe("The product variant id for this line item.")
+            })
+          })
+        )
+        .describe("Full replacement array of items."),
+      context: z
+        .object({
+          address_country: z.string().optional().describe("Localization signal for the buyer country."),
+          address_region: z.string().optional().describe("Localization signal for the buyer region."),
+          postal_code: z.string().optional().describe("Localization signal for the buyer postal code.")
+        })
+        .describe(
+          "Localization signals. Context is a hint for pricing, availability, and currency and is not used as the shipping address at checkout."
+        )
+        .optional(),
+      attribution: z
+        .object({
+          referring_domain: z.string().optional(),
+          click_id_tag: z.string().optional(),
+          click_id_value: z.string().optional(),
+          activity_id_tag: z.string().optional(),
+          activity_id_value: z.string().optional(),
+          utm_campaign: z.string().optional(),
+          utm_source: z.string().optional(),
+          utm_medium: z.string().optional(),
+          utm_content: z.string().optional(),
+          utm_term: z.string().optional()
+        })
+        .describe(
+          "Attribution metadata. Because the cart object is replaced, resend attribution if you want to preserve it."
+        )
+        .optional(),
+      buyer: z
+        .object({})
+        .passthrough()
+        .describe("Optional buyer information.")
+        .optional(),
+      signals: z
+        .object({})
+        .passthrough()
+        .describe("Optional platform signals.")
+        .optional()
+    })
+    .describe(
+      "The cart object containing the full desired cart state. Any field you omit is removed from the cart. update_cart uses PUT semantics and does not merge partial updates."
+    )
+});
+
+const cancelCartInputSchema = z.object({
+  shop_domain: z
+    .string()
+    .describe("The shop domain to call. This maps to https://{shop-domain}/api/ucp/mcp."),
+  meta: z
+    .object({
+      "ucp-agent": z.object({
+        profile: z
+          .string()
+          .url()
+          .describe("The URI to your agent's UCP profile for capability negotiation.")
+      }),
+      "idempotency-key": z
+        .string()
+        .uuid()
+        .describe("A UUID required for retry safety.")
+    })
+    .describe("Request metadata. You must include ucp-agent.profile and idempotency-key."),
+  id: z.string().describe("The ID of the cart to cancel.")
+});
+
 function createServer() {
   const server = new McpServer({
     name: "carts",
@@ -148,7 +245,20 @@ function createServer() {
         })
       });
 
-      const result = await response.json();
+      const result = await response.json() as Record<string, unknown>;
+
+      if ("error" in result) {
+        return {
+          content: [
+            {
+              text: JSON.stringify(result),
+              type: "text"
+            }
+          ],
+          structuredContent: result,
+          isError: true
+        };
+      }
 
       return {
         content: [
@@ -156,7 +266,8 @@ function createServer() {
             text: JSON.stringify(result),
             type: "text"
           }
-        ]
+        ],
+        structuredContent: result
       };
     }
   );
@@ -187,7 +298,20 @@ function createServer() {
         })
       });
 
-      const result = await response.json();
+      const result = await response.json() as Record<string, unknown>;
+
+      if ("error" in result) {
+        return {
+          content: [
+            {
+              text: JSON.stringify(result),
+              type: "text"
+            }
+          ],
+          structuredContent: result,
+          isError: true
+        };
+      }
 
       return {
         content: [
@@ -195,7 +319,115 @@ function createServer() {
             text: JSON.stringify(result),
             type: "text"
           }
-        ]
+        ],
+        structuredContent: result
+      };
+    }
+  );
+
+  server.registerTool(
+    "update_cart",
+    {
+      description: "Replace the contents of an existing cart.",
+      inputSchema: updateCartInputSchema
+    },
+    async ({ shop_domain, meta, id, cart }: z.infer<typeof updateCartInputSchema>) => {
+      const response = await fetch(`https://${shop_domain}/api/ucp/mcp`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          method: "tools/call",
+          id: 2,
+          params: {
+            name: "update_cart",
+            arguments: {
+              meta,
+              id,
+              cart
+            }
+          }
+        })
+      });
+
+      const result = await response.json() as Record<string, unknown>;
+
+      if ("error" in result) {
+        return {
+          content: [
+            {
+              text: JSON.stringify(result),
+              type: "text"
+            }
+          ],
+          structuredContent: result,
+          isError: true
+        };
+      }
+
+      return {
+        content: [
+          {
+            text: JSON.stringify(result),
+            type: "text"
+          }
+        ],
+        structuredContent: result
+      };
+    }
+  );
+
+  server.registerTool(
+    "cancel_cart",
+    {
+      description: "Cancel an active cart.",
+      inputSchema: cancelCartInputSchema
+    },
+    async ({ shop_domain, meta, id }: z.infer<typeof cancelCartInputSchema>) => {
+      const response = await fetch(`https://${shop_domain}/api/ucp/mcp`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          method: "tools/call",
+          id: 3,
+          params: {
+            name: "cancel_cart",
+            arguments: {
+              meta,
+              id
+            }
+          }
+        })
+      });
+
+      const result = await response.json() as Record<string, unknown>;
+
+      if ("error" in result) {
+        return {
+          content: [
+            {
+              text: JSON.stringify(result),
+              type: "text"
+            }
+          ],
+          structuredContent: result,
+          isError: true
+        };
+      }
+
+      return {
+        content: [
+          {
+            text: JSON.stringify(result),
+            type: "text"
+          }
+        ],
+        structuredContent: result
       };
     }
   );
