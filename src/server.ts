@@ -81,6 +81,23 @@ const createCartInputSchema = z.object({
     .describe("The cart object containing the cart data.")
 });
 
+const getCartInputSchema = z.object({
+  shop_domain: z
+    .string()
+    .describe("The shop domain to call. This maps to https://{shop-domain}/api/ucp/mcp."),
+  meta: z
+    .object({
+      "ucp-agent": z.object({
+        profile: z
+          .string()
+          .url()
+          .describe("The URI to your agent's UCP profile for capability negotiation.")
+      })
+    })
+    .describe("Request metadata. You must include ucp-agent.profile."),
+  id: z.string().describe("The ID of the cart to retrieve.")
+});
+
 function createServer() {
   const server = new McpServer({
     name: "carts",
@@ -126,6 +143,45 @@ function createServer() {
             arguments: {
               meta,
               cart
+            }
+          }
+        })
+      });
+
+      const result = await response.json();
+
+      return {
+        content: [
+          {
+            text: JSON.stringify(result),
+            type: "text"
+          }
+        ]
+      };
+    }
+  );
+
+  server.registerTool(
+    "get_cart",
+    {
+      description: "Retrieve the current state of an existing cart.",
+      inputSchema: getCartInputSchema
+    },
+    async ({ shop_domain, meta, id }: z.infer<typeof getCartInputSchema>) => {
+      const response = await fetch(`https://${shop_domain}/api/ucp/mcp`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          method: "tools/call",
+          id: 1,
+          params: {
+            name: "get_cart",
+            arguments: {
+              meta,
+              id
             }
           }
         })
